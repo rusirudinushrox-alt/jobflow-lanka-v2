@@ -35,6 +35,7 @@ export type Job = {
   work_time: string | null
   contact_name: string | null
   contact_phone: string | null
+  gender: string | null
   status: 'new' | 'reviewed' | 'contacted' | 'closed' | 'rejected' | 'expired'
   posted_by: string | null
   raw_text: string | null
