@@ -59,6 +59,7 @@ export default function PostJob() {
       work_time: extracted.time || null,
       contact_name: extracted.contactName || null,
       contact_phone: extracted.contact || null,
+      gender: extracted.gender || null,
       status: 'new',
       posted_by: user.id,
       raw_text: raw,
