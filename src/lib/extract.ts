@@ -1,12 +1,20 @@
-/** Local extraction – NO AI API
- * Fixes: payment vs year, multi-location (SI/EN/Singlish),
- * work-date vs payment-day, time 10/6, special points, duration
+/** Local extraction – NO AI
+ * Rule-based priority system so similar (but different) ads still extract correctly.
+ *
+ * Priority ideas:
+ *  1) Never treat headcount (Girl 1k, පිරිමි 04) as money
+ *  2) Never treat years (2026) or phone digits as money
+ *  3) Payment: total 2800/= > compound sum > labeled Payment: > 4k rate > bare number
+ *  4) Time: missing am/pm → if end < start or end ≤6 with morning start → treat end as PM
+ *  5) Food: explicit "naa/no" beats keyword "food"
+ *  6) Gender counts in SI/EN/Singlish before generic boy/girl
  */
 
 const LOCATIONS: { keys: string[]; name: string; district?: string }[] = [
-  // Colombo
   { keys: ['රාජගිරිය', 'rajagiriya'], name: 'රාජගිරිය', district: 'Colombo' },
   { keys: ['කොළඹ', 'colombo', 'කොලඹ'], name: 'කොළඹ', district: 'Colombo' },
+  { keys: ['viharamahadevi', 'විහාරමහාදේවී', 'vihara mahadevi'], name: 'Viharamahadevi Park', district: 'Colombo' },
+  { keys: ['colombo city center', 'city center', 'ccc'], name: 'Colombo City Center', district: 'Colombo' },
   { keys: ['නුගේගොඩ', 'nugegoda'], name: 'නුගේගොඩ', district: 'Colombo' },
   { keys: ['මහරගම', 'maharagama'], name: 'මහරගම', district: 'Colombo' },
   { keys: ['කෝට්ටේ', 'kotte', 'sri jayawardenepura'], name: 'කෝට්ටේ', district: 'Colombo' },
@@ -25,33 +33,26 @@ const LOCATIONS: { keys: string[]; name: string; district?: string }[] = [
   { keys: ['කොස්වත්ත', 'koswatta'], name: 'කොස්වත්ත', district: 'Colombo' },
   { keys: ['තලවතුගොඩ', 'talawatugoda'], name: 'තලවතුගොඩ', district: 'Colombo' },
   { keys: ['රත්මලාන', 'ratmalana'], name: 'රත්මලාන', district: 'Colombo' },
-  { keys: ['මාරදාන', 'maradana'], name: 'මාරදාන', district: 'Colombo' },
+  { keys: ['මාරදාන', 'මරදාන', 'maradana'], name: 'මාරදාන', district: 'Colombo' },
   { keys: ['බම්බලපිටිය', 'bambalapitiya'], name: 'බම්බලපිටිය', district: 'Colombo' },
   { keys: ['කොල්ලුපිටිය', 'kollupitiya'], name: 'කොල්ලුපිටිය', district: 'Colombo' },
   { keys: ['වැල්ලවත්ත', 'wellawatte', 'wellawatta'], name: 'වැල්ලවත්ත', district: 'Colombo' },
-  // Gampaha
+  { keys: ['කේ-සෝන්', 'k-zone', 'kzone'], name: 'K-Zone', district: 'Colombo' },
   { keys: ['වත්තල', 'wattala'], name: 'වත්තල', district: 'Gampaha' },
-  { keys: ['කැලණිය', 'kelaniya'], name: 'කැලණිය', district: 'Gampaha' },
+  { keys: ['කැලණිය', 'kelaniya', 'kalaniya'], name: 'කැලණිය', district: 'Gampaha' },
+  { keys: ['keells', 'කීල්ස්'], name: 'Keells', district: 'Gampaha' },
   { keys: ['ගම්පහ', 'gampaha'], name: 'ගම්පහ', district: 'Gampaha' },
   { keys: ['නෙගොම්බෝ', 'negombo'], name: 'නෙගොම්බෝ', district: 'Gampaha' },
-  { keys: ['ජා-ඇල', 'ja-ela', 'jaela'], name: 'ජා-ඇල', district: 'Gampaha' },
-  { keys: ['කඳාන', 'kandana'], name: 'කඳාන', district: 'Gampaha' },
   { keys: ['රාගම', 'ragama'], name: 'රාගම', district: 'Gampaha' },
+  { keys: ['කඩවත', 'kadawatha'], name: 'කඩවත', district: 'Gampaha' },
+  { keys: ['ජා-ඇල', 'ja-ela', 'jaela'], name: 'ජා-ඇල', district: 'Gampaha' },
   { keys: ['කිරිබත්ගොඩ', 'kiribathgoda'], name: 'කිරිබත්ගොඩ', district: 'Gampaha' },
-  { keys: ['මිනුවන්ගොඩ', 'minuwangoda'], name: 'මිනුවන්ගොඩ', district: 'Gampaha' },
-  // Kandy / hill
   { keys: ['මහනුවර', 'kandy'], name: 'මහනුවර', district: 'Kandy' },
-  { keys: ['නවලපිටිය', 'nawalapitiya'], name: 'නවලපිටිය', district: 'Kandy' },
-  { keys: ['ගම්පොළ', 'gampola'], name: 'ගම්පොළ', district: 'Kandy' },
   { keys: ['පේරාදෙණිය', 'peradeniya'], name: 'පේරාදෙණිය', district: 'Kandy' },
-  { keys: ['බොගවන්තලාව', 'bogawanthalawa', 'bogawantalawa'], name: 'Bogawanthalawa', district: 'Nuwara Eliya' },
-  { keys: ['norwood'], name: 'Norwood', district: 'Nuwara Eliya' },
-  { keys: ['hallaborke', 'halabokka', 'hallabokka'], name: 'Hallaborke', district: 'Nuwara Eliya' },
+  { keys: ['ගම්පොල', 'gampola'], name: 'ගම්පොල', district: 'Kandy' },
   { keys: ['නුවරඑළිය', 'nuwara eliya', 'nuwaraeliya'], name: 'නුවරඑළිය', district: 'Nuwara Eliya' },
-  { keys: ['හැටන්', 'hatton'], name: 'හැටන්', district: 'Nuwara Eliya' },
-  { keys: ['බණ්ඩාරවෙල', 'bandarawela'], name: 'බණ්ඩාරවෙල', district: 'Badulla' },
   { keys: ['බදුල්ල', 'badulla'], name: 'බදුල්ල', district: 'Badulla' },
-  // South / other
+  { keys: ['බණ්ඩාරවෙල', 'bandarawela'], name: 'බණ්ඩාරවෙල', district: 'Badulla' },
   { keys: ['ගාල්ල', 'galle'], name: 'ගාල්ල', district: 'Galle' },
   { keys: ['මාතර', 'matara'], name: 'මාතර', district: 'Matara' },
   { keys: ['හම්බන්තොට', 'hambantota'], name: 'හම්බන්තොට', district: 'Hambantota' },
@@ -60,6 +61,7 @@ const LOCATIONS: { keys: string[]; name: string; district?: string }[] = [
   { keys: ['පොළොන්නරුව', 'polonnaruwa'], name: 'පොළොන්නරුව', district: 'Polonnaruwa' },
   { keys: ['මාතලේ', 'matale'], name: 'මාතලේ', district: 'Matale' },
   { keys: ['රත්නපුර', 'ratnapura'], name: 'රත්නපුර', district: 'Ratnapura' },
+  { keys: ['අවිස්සාවේල්ල', 'avissawella', 'awissawella'], name: 'අවිස්සාවේල්ල', district: 'Colombo' },
   { keys: ['කෑගල්ල', 'kegalle'], name: 'කෑගල්ල', district: 'Kegalle' },
   { keys: ['ත්‍රිකුණාමලය', 'trincomalee', 'trico'], name: 'ත්‍රිකුණාමලය', district: 'Trincomalee' },
   { keys: ['මඩකලපුව', 'batticaloa'], name: 'මඩකලපුව', district: 'Batticaloa' },
@@ -97,14 +99,43 @@ function isYearLike(n: number) {
   return n >= 2020 && n <= 2035
 }
 
-function isPaymentDayContext(text: string, index: number) {
-  const window = text.slice(Math.max(0, index - 45), index + 45).toLowerCase()
-  return /pay\s*day|payment\s*day|ගෙවන\s*දවස|ගෙවීම්\s*දින|salary\s*day|peya\s*dena|ගෙවනවා|will\s*pay|pay\s*on|payment\s*on/i.test(window)
+/** SL mobile: 07X XXX XXXX with optional spaces */
+const PHONE_RE = /(?:0|\+?94)?7\d[\s\-]*\d{3}[\s\-]*\d{3,4}/g
+
+/** Remove person-count phrases so they never become salary */
+function stripHeadcount(text: string): string {
+  return text
+    // headcount: boy 2k, Girl 1k
+    .replace(/(?:girls?|boys?|කොල්ල|කෙල්ල|දෙනෙක්|ළමයි|lamai)\s*\d{1,2}\s*[kK]\b/gi, ' ')
+    .replace(/\b\d{1,2}\s*[kK]\s*(?:onii|oni|ඕන|denek|දෙනෙක්)/gi, ' ')
+    .replace(/(?:පිරිමි|ගැහැණු|ගැහැනු)\s*(?:ළමයි|lamai)?\s*\d{1,2}/gi, ' ')
+    // duration hours: peya 9k / පැය 9ක් / hours 9k — NOT money
+    .replace(/(?:peya|පැය|hours?|hrs?)\s*\d{1,2}\s*[kK]?\s*(?:weda|wedak|වැඩ)?/gi, ' ')
+    .replace(/\d{1,2}\s*[kK]\s*(?:weda|wedak|hours?|පැය)/gi, ' ')
+}
+
+function to24(h: number, ap: string): number {
+  const a = (ap || '').toLowerCase()
+  if (a === 'pm' && h < 12) return h + 12
+  if (a === 'am' && h === 12) return 0
+  return h
+}
+
+/**
+ * Common rule: job ads write 8-3.30 or 9-5 meaning morning→afternoon.
+ * If end hour is small and start is morning, end is PM.
+ */
+function inferEndHour(h1: number, h2: number, ap1: string, ap2: string): number {
+  if (ap2) return to24(h2, ap2)
+  if (h2 <= 6 && h1 >= 7 && h1 <= 11) return h2 + 12
+  if (h2 <= 11 && h1 >= 12) return h2 + 12
+  if (!ap1 && h1 <= 11 && h2 <= 11 && h2 < h1) return h2 + 12
+  if (h1 <= 12 && h2 <= 8 && h2 < h1) return h2 + 12
+  return h2
 }
 
 export function extractAll(text: string): Extracted {
   const t = text || ''
-  const lower = t.toLowerCase()
   const r: Extracted = {
     location: '', locations: [], district: '', time: '', payment: '', paymentNum: 0,
     food: false, date: '', dates: [], duration: '', workType: '', gender: '', requirement: '',
@@ -112,217 +143,392 @@ export function extractAll(text: string): Extracted {
     immediate: false, special: [], clean: '', title: ''
   }
 
-  // ---- Phone ----
-  const phoneRe = /(?:0|94|\+94)?[\s\-]?7[0-9]{2}[\s\-]?[0-9]{3}[\s\-]?[0-9]{3,4}/g
-  const phones = t.match(phoneRe) || []
+  // ========== PHONE ==========
+  const phones = t.match(PHONE_RE) || []
   if (phones.length) {
     let p = phones[0].replace(/[\s\-]/g, '')
     if (p.startsWith('94')) p = '0' + p.slice(2)
-    if (p.length === 9) p = '0' + p
+    if (!p.startsWith('0') && p.length === 9) p = '0' + p
     r.contact = p
   }
-  const nameNear = t.match(/(\d{9,11})\s*[💫⭐🌟•\-\s]*([A-Za-z debච-ෆ]{2,18})/i)
-  if (nameNear) r.contactName = nameNear[2].trim()
 
-  // ---- Locations: list match + lines after dates ----
-  const foundLocs: string[] = []
-  let firstDistrict = ''
+  // ========== LOCATIONS ==========
+  // Rule: "X awata idan transport" / "from X transport" = pickup only, NOT job site
+  const lowerAll = t.toLowerCase()
+  const pickupNames: string[] = []
+  const transportOriginRe =
+    /([a-zA-Z\u0D80-\u0DFF\s]{2,40}?)\s*(?:awata|අවට)?\s*(?:idan|ඉඳන්|from)?\s*transport\s*(?:denawa|දෙනවා|දෙනව|provided)?/gi
+  let tom: RegExpExecArray | null
+  const originChunks: string[] = []
+  while ((tom = transportOriginRe.exec(t)) !== null) {
+    originChunks.push(tom[1] || tom[0])
+  }
+  // also: "Kelaniya Kiribathgoda awata idan transport"
+  const awataIdan = t.match(/([^\n.]{5,60}?)\s+awata\s+idan\s+transport/i)
+  if (awataIdan) originChunks.push(awataIdan[1])
+
+  for (const chunk of originChunks) {
+    for (const loc of LOCATIONS) {
+      for (const k of loc.keys) {
+        if (chunk.toLowerCase().includes(k.toLowerCase()) || chunk.includes(k)) {
+          if (!pickupNames.includes(loc.name)) pickupNames.push(loc.name)
+        }
+      }
+    }
+  }
+
+  // Explicit venue lines often are the real job site
+  const venueLine =
+    t.match(/(?:colombo\s*city\s*center|city\s*center)/i) ||
+    t.match(/location\s*[-:=]?\s*([^\n]+)/i) ||
+    t.match(/📍\s*([^\n]+)/)
+  let venueName = ''
+  if (venueLine) {
+    const raw = (venueLine[1] || venueLine[0] || '').trim()
+    if (/city\s*center/i.test(raw) || /colombo\s*city\s*center/i.test(venueLine[0])) {
+      venueName = 'Colombo City Center'
+    } else if (venueLine[1] && !/^location$/i.test(venueLine[1].trim())) {
+      // only if not the form label "Location"
+      const v = venueLine[1].trim().slice(0, 50)
+      if (!/^(full\s*name|id\s*no|contact|experience)$/i.test(v)) venueName = v
+    }
+  }
+
   for (const loc of LOCATIONS) {
     for (const k of loc.keys) {
-      if (lower.includes(k.toLowerCase()) || t.includes(k)) {
-        if (!foundLocs.includes(loc.name)) {
-          foundLocs.push(loc.name)
-          if (!firstDistrict && loc.district) firstDistrict = loc.district
+      if (lowerAll.includes(k.toLowerCase()) || t.includes(k)) {
+        // skip if this city is only a transport pickup origin
+        if (pickupNames.includes(loc.name) && loc.name !== venueName) {
+          break
+        }
+        if (!r.locations.includes(loc.name)) r.locations.push(loc.name)
+        if (!r.location) {
+          r.location = loc.name
+          if (loc.district) r.district = loc.district
         }
         break
       }
     }
   }
-  // Free-text places on lines after YYYY/MM/DD =
-  const lineRe = /20\d{2}[\/\-.]\d{1,2}[\/\-.]\d{1,2}\s*[=:\-]?\s*([^\n]{3,80})/g
-  let lm: RegExpExecArray | null
-  while ((lm = lineRe.exec(t)) !== null) {
-    const chunk = lm[1].replace(/[🚫⭐💫•]+/g, ' ').trim()
-    // last word-ish tokens that look like place names (Latin capital or Sinhala)
-    const tokens = chunk.split(/[\s,|]+/).filter(Boolean)
-    for (const tok of tokens) {
-      const clean = tok.replace(/[^A-Za-z debච-ෆ.\-]/g, '')
-      if (clean.length < 3) continue
-      const known = LOCATIONS.find(l =>
-        l.keys.some(k => clean.toLowerCase().includes(k.toLowerCase()) || k.toLowerCase().includes(clean.toLowerCase()))
-      )
-      if (known && !foundLocs.includes(known.name)) {
-        foundLocs.push(known.name)
-        if (!firstDistrict && known.district) firstDistrict = known.district
-      } else if (/^[A-Z][a-z]{3,}$/.test(clean) && !foundLocs.includes(clean)) {
-        if (!/^(bus|stand|carpark|store|stores|super|grocery|town|the|and|for|with|from|time|date|location|girl|boy|one|urgent|lanka|sarawans|kasmeera)$/i.test(clean)) {
-          // only keep if looks like multi-syllable place (optional) – skip brand names
-        }
-      }
-    }
-  }
-  r.locations = foundLocs
-  r.location = foundLocs.join(', ')
-  r.district = firstDistrict
 
-  // ---- Dates (skip payment-day context; prefer near locations) ----
-  const dateRe = /\b(20\d{2})[\/\-.](\d{1,2})[\/\-.](\d{1,2})\b/g
-  const workDates: string[] = []
-  let dm: RegExpExecArray | null
-  while ((dm = dateRe.exec(t)) !== null) {
-    if (isPaymentDayContext(t, dm.index)) continue
-    workDates.push(dm[0])
-  }
-  if (workDates.length === 0) {
-    const all = t.match(/\b(20\d{2})[\/\-.](\d{1,2})[\/\-.](\d{1,2})\b/g) || []
-    workDates.push(...all)
-  }
-  const locNearDates: string[] = []
-  for (const d of workDates) {
-    const idx = t.indexOf(d)
-    const near = t.slice(idx, idx + 140).toLowerCase()
-    if (LOCATIONS.some(loc => loc.keys.some(k => near.includes(k.toLowerCase())))) {
-      locNearDates.push(d)
+  // Prefer explicit venue as primary location
+  if (venueName) {
+    r.location = venueName
+    if (!r.locations.includes(venueName)) r.locations.unshift(venueName)
+    r.locations = r.locations.filter(n => !pickupNames.includes(n) || n === venueName)
+    // City Center is more specific than plain Colombo
+    if (/city\s*center/i.test(venueName)) {
+      r.locations = r.locations.filter(n => n !== 'කොළඹ')
     }
-  }
-  const finalDates = locNearDates.length > 0 ? locNearDates : workDates
-  if (finalDates.length) {
-    r.dates = finalDates
-    r.date = finalDates.join(' · ')
-  } else {
-    if (/හෙට|heta|tomorrow/i.test(t)) r.date = 'හෙට'
-    else if (/අද|ada|today/i.test(t)) r.date = 'අද'
-    else if (/monday|සඳුදා/i.test(t)) r.date = 'සඳුදා'
-    else if (/tuesday|අඟහරුවාදා/i.test(t)) r.date = 'අඟහරුවාදා'
-    else if (/wednesday|බදාදා/i.test(t)) r.date = 'බදාදා'
-    else if (/thursday|බ්‍රහස්පතින්දා/i.test(t)) r.date = 'බ්‍රහස්පතින්දා'
-    else if (/friday|සිකුරාදා/i.test(t)) r.date = 'සිකුරාදා'
-    else if (/saturday|සෙනසුරාදා/i.test(t)) r.date = 'සෙනසුරාදා'
-    else if (/sunday|ඉරිදා/i.test(t)) r.date = 'ඉරිදා'
+    if (/colombo/i.test(venueName)) r.district = 'Colombo'
   }
 
-  // ---- Time ----
-  const timeRange = t.match(/(\d{1,2})[.:](\d{2})\s*(am|pm|AM|PM)?\s*[-–to]+\s*(\d{1,2})[.:]?(\d{2})?\s*(am|pm|AM|PM)?/i)
-  const singleTime = t.match(/(\d{1,2})[.:](\d{2})\s*(am|pm|AM|PM|ට|ta)?/i)
-  const timeLabel = /time\s*[-:=]?\s*(\d{1,2})\s*[\/\-–]\s*(\d{1,2})/i.exec(t)
+  if (pickupNames.length) {
+    r.special.push('Transport: ' + pickupNames.join(', ') + ' සිට')
+  }
+
+  // Clean location labels: "*Name 1" → Name, dedupe
+  r.locations = [...new Set(
+    r.locations.map(n => n.replace(/^[*\s]+/, '').replace(/\s+\d+\s*$/, '').trim()).filter(Boolean)
+  )]
+  if (r.location) {
+    r.location = r.location.replace(/^[*\s]+/, '').replace(/\s+\d+\s*$/, '').trim()
+  }
+  // Drop free-text duplicate of known city
+  r.locations = r.locations.filter((n, i, arr) => arr.indexOf(n) === i)
+
+
+  if (!r.location) {
+    const locLine = t.match(/location\s*[-:=]?\s*([^\n,]+)/i)
+    if (locLine) {
+      const v = locLine[1].trim().slice(0, 40)
+      if (!/^(full\s*name|id\s*no|contact|experience)?$/i.test(v)) r.location = v
+    }
+  }
+
+  // ========== DATE / DURATION ==========
+  const md = t.match(/(නොවැම්බර්|ඔක්තෝබර්|දෙසැම්බර්|සැප්තැම්බර්|november|october|december|september|january|february|march|april|june|july|august)\s*[-.]?\s*(\d{1,2})/i)
+  if (md) r.date = (md[1] + ' ' + md[2]).replace(/\s+/g, ' ')
+  else if (/ada\s*sunday|අද\s*sunday|today\s*sunday/i.test(t)) r.date = 'අද (ඉරිදා)'
+  else if (/\bada\b|අද|today/i.test(t)) r.date = 'අද'
+  else if (/හෙට|heta|tomorrow/i.test(t)) r.date = 'හෙට'
+  else if (/monday|සඳුදා/i.test(t)) r.date = 'සඳුදා'
+  else if (/tuesday|අඟහරුවාදා/i.test(t)) r.date = 'අඟහරුවාදා'
+  else if (/wednesday|බදාදා/i.test(t)) r.date = 'බදාදා'
+  else if (/thursday|බ්‍රහස්පතින්දා|බ්රහස්/i.test(t)) r.date = 'බ්‍රහස්පතින්දා'
+  else if (/friday|සිකුරාදා/i.test(t)) r.date = 'සිකුරාදා'
+  else if (/saturday|සෙනසුරාදා/i.test(t)) r.date = 'සෙනසුරාදා'
+  else if (/sunday|ඉරිදා/i.test(t)) r.date = 'ඉරිදා'
+  else {
+    const dayOnly = t.match(/\bdate\s*[-:=]?\s*(\d{1,2})\b/i)
+    if (dayOnly) {
+      const d = parseInt(dayOnly[1], 10)
+      if (d >= 1 && d <= 31) r.date = 'Date ' + d
+    }
+  }
+
+  // ISO-like dates collect
+  // 2026.10.25 or 2026 .10.25 or 2026/10/25 — strip spaces around dots
+  const isoDates = t.replace(/(\d{4})\s*[.\/\-]\s*(\d{1,2})\s*[.\/\-]\s*(\d{1,2})/g, '$1.$2.$3')
+    .match(/\b20\d{2}[./\-]\d{1,2}[./\-]\d{1,2}\b/g)
+  if (isoDates) {
+    r.dates = [...new Set(isoDates)]
+    // Prefer full date over bare හෙට when both present
+    const main = isoDates[0]
+    const heta = /හෙට|heta|tomorrow/i.test(t) ? ' (හෙට)' : ''
+    r.date = main + heta
+  }
+
+  // Duration: "දින 7ක්" / "3 days" beats hour math
+  const daysM = t.match(/දින\s*(\d{1,2})\s*ක්/i) || t.match(/(\d{1,2})\s*(?:days?|dawas|dawasak)\b/i)
+  const hoursM = t.match(/(?:peya|පැය|hours?|hrs?)\s*(\d{1,2})\s*[kK]?/i) ||
+                 t.match(/(\d{1,2})\s*[kK]?\s*(?:peya|පැය|hours?|hrs?)/i) ||
+                 t.match(/(\d{1,2})\s*(?:hours?|hrs?|පැය)\b/i)
+  if (daysM) r.duration = 'දින ' + daysM[1]
+  else if (hoursM) r.duration = 'පැය ' + (hoursM[1] || hoursM[2])
+  else if (/full\s*day|පූර්ණ\s*දින/i.test(t)) r.duration = 'Full day'
+
+  // ========== TIME (common PM inference) ==========
+  // Never treat calendar dates (2026.10.25 / 10.25 from year-date) as clock time
+  let timeSrc = t
+    .replace(/\b20\d{2}\s*[./\-]\s*\d{1,2}\s*[./\-]\s*\d{1,2}\b/g, ' ')
+    .replace(/\b20\d{2}\b/g, ' ')
+  // Normalize "9 00,am ,6 00 pm" / "9.00am,6.00pm" → easier match
+  timeSrc = timeSrc
+    .replace(/(\d{1,2})\s+00\s*,?\s*(am|pm)/gi, '$1:00 $2')
+    .replace(/(\d{1,2})\s*[.:]\s*(\d{2})\s*,?\s*(am|pm)/gi, '$1:$2 $3')
+    .replace(/time\s*[-:=]?\s*/i, 'Time ')
+
+  const timeRange = timeSrc.match(/(\d{1,2})(?:[.:](\d{2}))?\s*(am|pm|AM|PM)?\s*[-–to]+\s*(\d{1,2})(?:[.:](\d{2}))?\s*(am|pm|AM|PM)?/i)
+  const timeLabel = /time\s*[-:=]?\s*(\d{1,2})\s*[\/\-–]\s*(\d{1,2})/i.exec(timeSrc)
+  const singleTime = timeSrc.match(/(\d{1,2})[.:](\d{2})\s*(am|pm|AM|PM)?/i)
   if (timeRange) {
-    let h1 = parseInt(timeRange[1], 10), m1 = timeRange[2], ap1 = (timeRange[3] || '').toLowerCase()
-    let h2 = parseInt(timeRange[4], 10), m2 = timeRange[5] || '00', ap2 = (timeRange[6] || '').toLowerCase()
-    if (ap1 === 'pm' && h1 < 12) h1 += 12
-    if (ap2 === 'pm' && h2 < 12) h2 += 12
+    let h1 = parseInt(timeRange[1], 10)
+    const m1 = timeRange[2] || '00'
+    const ap1 = timeRange[3] || ''
+    let h2 = parseInt(timeRange[4], 10)
+    const m2 = timeRange[5] || '00'
+    const ap2 = timeRange[6] || ''
+    h1 = to24(h1, ap1)
+    h2 = inferEndHour(h1, h2, ap1, ap2)
     r.time = pad(h1) + ':' + m1 + ' - ' + pad(h2) + ':' + m2
-  } else if (timeLabel) {
+  } else {
+    const ampmPair = timeSrc.match(/(\d{1,2})(?::(\d{2}))?\s*(am)\s*[,.\\-–to]*\s*(\d{1,2})(?::(\d{2}))?\s*(pm)/i)
+    if (ampmPair) {
+      const h1 = to24(parseInt(ampmPair[1], 10), 'am')
+      const h2 = to24(parseInt(ampmPair[4], 10), 'pm')
+      r.time = pad(h1) + ':' + (ampmPair[2] || '00') + ' - ' + pad(h2) + ':' + (ampmPair[5] || '00')
+    }
+  }
+  if (!r.time && timeLabel) {
     let a = parseInt(timeLabel[1], 10)
     let b = parseInt(timeLabel[2], 10)
-    // 10/6 in SL ads usually means 10 AM – 6 PM
-    if (a <= 12 && b <= 11 && b < a) b += 12
-    else if (a <= 11 && b <= 11 && b > a) { /* same meridian ok */ }
-    else if (a <= 12 && b <= 8) b += 12
+    b = inferEndHour(a, b, '', '')
     r.time = pad(a) + ':00 - ' + pad(b) + ':00'
-  } else if (singleTime) {
-    let h = parseInt(singleTime[1], 10), m = singleTime[2], ap = (singleTime[3] || '').toLowerCase()
-    if (ap === 'pm' && h < 12) h += 12
+  }
+  if (!r.time && singleTime) {
+    let h = parseInt(singleTime[1], 10)
+    const m = singleTime[2]
+    h = to24(h, singleTime[3] || '')
     r.time = pad(h) + ':' + m
   }
 
-  // ---- Duration: hours / days ----
-  const hoursM = t.match(/(\d{1,2})\s*(?:hours?|hrs?|පැය|peya\s*keeyak)/i)
-  const daysM = t.match(/(\d{1,2})\s*(?:days?|දින|dawas|dawasak)/i)
-  if (daysM) r.duration = 'දින ' + daysM[1]
-  else if (hoursM) r.duration = 'පැය ' + hoursM[1]
-  else if (/full\s*day|පූර්ණ\s*දින/i.test(t)) r.duration = 'Full day'
-  // From time range e.g. 10-6 → 8 hours
-  if (!r.duration && r.time.includes(' - ')) {
-    const parts = r.time.split(' - ')
-    if (parts.length === 2) {
-      const [h1] = parts[0].split(':').map(Number)
-      const [h2] = parts[1].split(':').map(Number)
-      if (!isNaN(h1) && !isNaN(h2)) {
-        let diff = h2 - h1
-        if (diff < 0) diff += 24
-        if (diff > 0 && diff <= 16) r.duration = 'පැය ' + diff
-      }
+  if (!r.time) {
+    const fromT = timeSrc.match(/(?:from|පටන්|patan|start)?\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*(?:පටන්|patan|onwards|from)?/i) ||
+                  timeSrc.match(/(\d{1,2})(?::(\d{2}))?\s*(pm|am)\s*(?:පටන්|patan)/i)
+    if (fromT) {
+      const h = to24(parseInt(fromT[1], 10), fromT[3] || '')
+      r.time = pad(h) + ':' + (fromT[2] || '00') + ' පටන්'
     }
   }
 
-  // ---- Payment (never year) ----
-  let payText = t.replace(phoneRe, ' ')
+
+  // Reject impossible times (e.g. 26:10 from mangled dates)
+  if (r.time) {
+    const bad = r.time.split(/\s*-\s*|\s+/).some(part => {
+      const hm = part.match(/(\d{1,2}):(\d{2})/)
+      if (!hm) return false
+      const h = parseInt(hm[1], 10), m = parseInt(hm[2], 10)
+      return h > 23 || m > 59
+    })
+    if (bad) r.time = ''
+  }
+  // If no real clock pattern was in original text (only dates), clear time
+  if (r.time) {
+    const hasClock = /\b\d{1,2}\s*[:.]\s*\d{2}\s*(am|pm)?\b|\b\d{1,2}\s*(am|pm)\b|time\s*[-:=]?\s*\d/i.test(
+      t.replace(/\b20\d{2}\s*[./\-]\s*\d{1,2}\s*[./\-]\s*\d{1,2}\b/g, ' ')
+    )
+    if (!hasClock && !/\d{1,2}\s*[\/\-–]\s*\d{1,2}/.test(t.replace(/20\d{2}/g, ''))) {
+      // allow only if am/pm or explicit Time label existed
+      if (!/\b(?:am|pm)\b|\btime\b/i.test(t)) r.time = ''
+    }
+  }
+
+  if (!r.duration && r.time.includes(' - ')) {
+    const [a, b] = r.time.split(' - ')
+    const h1 = parseInt(a, 10), h2 = parseInt(b, 10)
+    if (!isNaN(h1) && !isNaN(h2)) {
+      let diff = h2 - h1
+      if (diff < 0) diff += 24
+      if (diff > 0 && diff <= 16) r.duration = 'පැය ' + diff
+    }
+  }
+
+  // ========== PAYMENT (priority ladder) ==========
+  let payText = t.replace(PHONE_RE, ' ')
   payText = payText.replace(/\b20\d{2}[\/\-.]\d{1,2}[\/\-.]\d{1,2}\b/g, ' ')
   payText = payText.replace(/\b20\d{2}\b/g, ' ')
+  payText = stripHeadcount(payText)
+  // Target/goal lines are not base salary
+  payText = payText.replace(/target\s*[^\n]*/gi, ' ')
+
   let paymentFound = false
 
-  const labeled = payText.match(/(?:payment|peymnt|peya|paymnt|ගෙවීම|salary|rate|pay)\s*[-:=]?\s*(?:rs\.?|රු\.?)?\s*([0-9]{3,6})/i)
-  if (labeled) {
-    const num = parseInt(labeled[1].replace(/\D/g, ''), 10)
-    if (num >= 500 && num <= 100000 && !isYearLike(num)) {
-      r.paymentNum = num
-      r.payment = 'Rs. ' + num.toLocaleString('en-LK')
-      paymentFound = true
-    }
-  }
-  if (!paymentFound) {
-    const kStyle = payText.match(/\b(\d{1,2}(?:\.\d)?)\s*[kK]\b/)
-    if (kStyle) {
-      const num = Math.round(parseFloat(kStyle[1]) * 1000)
-      if (num >= 500 && num <= 100000) {
+  // 0) Hours-rate line: "පැය 9 = 2800" / "peya 9 = 2800"
+  {
+    const hrPay = t.match(/(?:peya|පැය)\s*\d{1,2}\s*[kK]?\s*[=:]\s*(?:rs\.?)?\s*([0-9]{3,6})/i)
+    if (hrPay) {
+      const num = parseInt(hrPay[1], 10)
+      if (num >= 500 && num <= 100000 && !isYearLike(num)) {
         r.paymentNum = num
         r.payment = 'Rs. ' + num.toLocaleString('en-LK')
         paymentFound = true
       }
     }
   }
+
+  // 1) Explicit total: 2800/= or 2800/-
+  {
+    const m = payText.match(/\b([1-9][0-9]{3,5})\s*\/\s*=?/)
+    if (m) {
+      const num = parseInt(m[1], 10)
+      if (num >= 500 && num <= 100000 && !isYearLike(num)) {
+        r.paymentNum = num
+        r.payment = 'Rs. ' + num.toLocaleString('en-LK')
+        paymentFound = true
+      }
+    }
+  }
+
+  // 2) Compound: Payment 2000+500(food)+300 → sum
   if (!paymentFound) {
-    const payPatterns = [
-      /(?:rs\.?|රු\.?)\s*([0-9]{3,6})\s*(?:\+|plus)?\s*(food|කෑම|lunch|කැම)?/i,
-      /([0-9]{3,6})\s*(?:\+|plus)\s*(food|කෑම|lunch|කැම)/i,
+    const m = payText.match(
+      /(?:payment|peymnt|peya|pay|ගෙවීම|salary)\s*[-:=]?\s*([0-9]{3,6})\s*\+\s*([0-9]{2,5})(?:\s*\([^)]*\))?(?:\s*\+\s*([0-9]{2,5}))?/i
+    )
+    if (m) {
+      const sum = parseInt(m[1], 10) + parseInt(m[2], 10) + (m[3] ? parseInt(m[3], 10) : 0)
+      if (sum >= 500 && sum <= 100000) {
+        r.paymentNum = sum
+        r.payment = 'Rs. ' + sum.toLocaleString('en-LK')
+        paymentFound = true
+      }
+    }
+  }
+
+  // 3) Labeled: Payment:3000 / peymnt 2500
+  if (!paymentFound) {
+    const m = payText.match(
+      /(?:payment|peymnt|peya|paymnt|ගෙවීම|salary|rate|pay)\s*[-:=*]?\s*(?:rs\.?|රු\.?)?\s*([0-9]{3,6})/i
+    )
+    if (m) {
+      const num = parseInt(m[1], 10)
+      if (num >= 500 && num <= 100000 && !isYearLike(num)) {
+        r.paymentNum = num
+        r.payment = 'Rs. ' + num.toLocaleString('en-LK')
+        paymentFound = true
+      }
+    }
+  }
+
+  // 4) Rate style 4k / 2.5k (not 1k headcount — already stripped; min 2k)
+  if (!paymentFound) {
+    const m = payText.match(/\b([2-9](?:\.\d)?|[1-9]\d(?:\.\d)?)\s*[kK]\b/)
+    if (m) {
+      const num = Math.round(parseFloat(m[1]) * 1000)
+      if (num >= 2000 && num <= 100000) {
+        r.paymentNum = num
+        r.payment = 'Rs. ' + num.toLocaleString('en-LK')
+        paymentFound = true
+      }
+    }
+  }
+
+  // 5) Rs. 2500 or 2500+food
+  if (!paymentFound) {
+    const patterns = [
+      /(?:rs\.?|රු\.?)\s*([0-9]{3,6})/i,
+      /([0-9]{3,6})\s*(?:\+|plus)\s*(?:food|කෑම)/i,
       /([0-9]{3,6})\s*\/\s*-/,
     ]
-    for (const re of payPatterns) {
+    for (const re of patterns) {
       const m = payText.match(re)
       if (m) {
-        const num = parseInt(m[1].replace(/\D/g, ''), 10)
+        const num = parseInt(m[1], 10)
         if (num >= 500 && num <= 100000 && !isYearLike(num)) {
           r.paymentNum = num
           r.payment = 'Rs. ' + num.toLocaleString('en-LK')
-          if (m[2]) r.food = true
           paymentFound = true
           break
         }
       }
     }
   }
+
+  // 6) Bare 4-digit daily rate (pick largest sensible)
   if (!paymentFound) {
     const bare = payText.match(/\b([1-9][0-9]{3,4})\b/g)
     if (bare) {
-      for (const b of bare) {
-        const num = parseInt(b, 10)
-        if (num >= 1500 && num <= 15000 && !isYearLike(num)) {
-          r.paymentNum = num
-          r.payment = 'Rs. ' + num.toLocaleString('en-LK')
-          paymentFound = true
-          break
-        }
+      const nums = bare.map(b => parseInt(b, 10)).filter(n => n >= 1500 && n <= 15000 && !isYearLike(n))
+      if (nums.length) {
+        r.paymentNum = Math.max(...nums)
+        r.payment = 'Rs. ' + r.paymentNum.toLocaleString('en-LK')
+        paymentFound = true
       }
     }
   }
-  if (!r.food && /food|කෑම|lunch|කැම/i.test(t)) r.food = true
 
-  // ---- Special points (short) ----
-  if (/yalu|යාළු|friends?\s*ok|යාළුවෝ/i.test(t)) r.special.push('යාළුවෝ OK')
-  if (/ewalema|එන\s*වෙලාවට|same\s*time|ගෙවනවා|payment\s*eka\s*denawa|on\s*arrival/i.test(t)) r.special.push('එන වෙලාවටම ගෙවනවා')
-  if (/id\s*(card|eka)?|nic|ජාතික|හැඳුනුම්/i.test(t)) r.special.push('ID ගෙනෙන්න')
-  if (/age|වයස/i.test(t)) {
-    const age = t.match(/age\s*[-:=]?\s*(\d{2})\s*[-–to]*\s*(\d{2})?/i) || t.match(/වයස\s*(\d{2})\s*[-–]*\s*(\d{2})?/)
-    if (age) r.special.push('Age ' + age[1] + (age[2] ? '–' + age[2] : ''))
-    else r.special.push('Age limit තියෙනවා')
+  // ========== FOOD (no beats yes) ==========
+  if (/food\s*denne\s*naa|food\s*naa|no\s*food|කෑම\s*නැ|without\s*food|food\s*netha|කෑම\s*අැ/i.test(t)) {
+    r.food = false
+    r.special.push('කෑම නැහැ')
+  } else if (/food|කෑම|lunch|කැම|\+food/i.test(t)) {
+    r.food = true
   }
-  if (/uniform|dress\s*code|ඇඳුම/i.test(t)) r.special.push('Dress / Uniform')
-  if (/experience|අත්දැකීම|experienced/i.test(t)) r.special.push('Experience ඕනේ')
-  if (/no\s*experience|අත්දැකීම\s*අවශ්‍ය\s*නැ/i.test(t)) r.special.push('Experience අවශ්‍ය නැහැ')
-  if (/හවස|havas|evening/i.test(t)) r.special.push('හවස් වේලාව')
 
-  // ---- Work type / gender ----
-  if (/helper|වැඩ|wedak|help/i.test(t)) r.workType = 'Helper'
+  if (/trnsport|transport|ගමන්|traveling/i.test(t) && r.payment && !/transport/i.test(r.payment)) {
+    r.payment += ' + transport'
+  }
+
+  // ========== SPECIAL ==========
+  {
+    const withoutForm = t.replace(/full\s*name[\s\S]*$/i, '').replace(/\bid\s*(no|number)\b/gi, ' ')
+    if (/(?:id\s*card|nic|ජාතික|හැඳුනුම්\s*පත|id\s*ගෙන|bring\s*id)/i.test(withoutForm)) {
+      r.special.push('ID ගෙනෙන්න')
+    } else if (/\bid\b/i.test(withoutForm) && /(?:ගෙනෙන්න|ගෙන|gena|ඕනේ|onii|required)/i.test(withoutForm)) {
+      r.special.push('ID ගෙනෙන්න')
+    }
+  }
+  if (/uniform|dress\s*code|white\s*shirt|ඇඳුම|blouse|trouser|shoe/i.test(t)) r.special.push('Dress / Uniform')
+  if (/night\s*shift|රාත්‍රී|night\s*wed/i.test(t)) r.special.push('Night shift')
+  if (/ot\s*karanna|overtime|\bot\b/i.test(t)) r.special.push('OT available')
+  if (/yalu|යාළු|friends?\s*ok|යාළුවෝ/i.test(t)) r.special.push('යාළුවෝ OK')
+  if (/ewalema|එන\s*වෙලාවට|on\s*arrival|ගෙවනවා/i.test(t)) r.special.push('එන වෙලාවටම ගෙවනවා')
+  {
+    const body = t.replace(/(?:full\s*photo|full\s*name|id\s*no|contact\s*number|experience|location)\s*$/gim, '')
+      .split(/full\s*photo|full\s*name/i)[0]
+    if (/experience|අත්දැකීම/i.test(body) && !/no\s*experience/i.test(body)
+      && !/experience\s*$/im.test(t)) {
+      // real requirement sentence, not form label alone
+      if (/experience\s*(?:ඕන|onii|required|තියෙන්|ගෙන)/i.test(body) || /අත්දැකීම/.test(body))
+        r.special.push('Experience ඕනේ')
+    }
+  }
+
+  // ========== WORK TYPE ==========
+  if (/leaflet|leaflets|බෙදන්න/i.test(t)) r.workType = 'Leaflets'
+  else if (/boys?\s*vacancy|girls?\s*vacancy|\bvacancy\b/i.test(t)) r.workType = 'Vacancy'
+  else if (/\bhelper\b|wedak/i.test(t)) r.workType = 'Helper'
+  else if (/promotion|promo|ප්‍රොමෝ|ප්‍රෝමෝ|app\s*promotion/i.test(t)) r.workType = 'Promotion'
   else if (/sales|විකුණුම්|stores?|super|grocery/i.test(t)) r.workType = 'Sales / Store'
   else if (/delivery|ඩෙලිවරි/i.test(t)) r.workType = 'Delivery'
   else if (/cleaning|පිරිසිදු/i.test(t)) r.workType = 'Cleaning'
@@ -330,21 +536,50 @@ export function extractAll(text: string): Extracted {
   else if (/cashier|කැෂියර්/i.test(t)) r.workType = 'Cashier'
   else r.workType = 'General'
 
-  if (/girl\s*or\s*boy|boy\s*or\s*girl/i.test(t)) r.gender = 'Boys / Girls'
-  else {
-    if (/boy|කොල්ල|පිරිමි|male/i.test(t)) r.gender = 'Boys'
-    if (/girl|කෙල්ල|ගැහැණු|female/i.test(t)) r.gender = r.gender ? r.gender + ' / Girls' : 'Girls'
+  // ========== GENDER + HEADCOUNT (SI / EN / Singlish) ==========
+  const boysN =
+    t.match(/(?:පිරිමි|boys?|කොල්ල)\s*(?:ළමයි|lamai|denek|දෙනෙක්)?\s*(\d{1,2})/i) ||
+    t.match(/(\d{1,2})\s*(?:පිරිමි|boys?|කොල්ල)/i)
+  const girlsN =
+    t.match(/(?:ගැහැණු|ගැහැනු|girls?|කෙල්ල)\s*(?:ළමයි|lamai|denek|දෙනෙක්)?\s*(\d{1,2})/i) ||
+    t.match(/(\d{1,2})\s*(?:ගැහැණු|girls?|කෙල්ල)/i)
+  const headK =
+    t.match(/(?:girls?|boys?|කොල්ල|කෙල්ල)\s*(\d{1,2})\s*[kK]\b/i) ||
+    t.match(/\b(\d{1,2})\s*[kK]\s*(?:onii|oni|ඕන)/i)
+
+  // "girl or boy 3" / "boy or girl 2k" common pattern first
+  const eitherN = t.match(/(?:girl\s*or\s*boy|boy\s*or\s*girl)\s*(\d{1,2})/i)
+  if (eitherN) {
+    r.gender = 'Boys / Girls'
+    r.requirement = eitherN[1] + ' දෙනෙක්'
+  } else if (boysN && girlsN) {
+    r.gender = 'Boys / Girls'
+    r.requirement = 'පිරිමි ' + boysN[1] + ' · ගැහැණු ' + girlsN[1]
+  } else if (boysN) {
+    r.gender = 'Boys'
+    r.requirement = boysN[1] + ' දෙනෙක්'
+  } else if (girlsN) {
+    r.gender = 'Girls'
+    r.requirement = girlsN[1] + ' දෙනෙක්'
+  } else if (headK) {
+    r.requirement = headK[1] + ' දෙනෙක්'
+    if (/girl|කෙල්ල|ගැහැණු/i.test(t)) r.gender = 'Girls'
+    else if (/boy|කොල්ල|පිරිමි/i.test(t)) r.gender = 'Boys'
+  } else {
+    if (/girl\s*or\s*boy|boy\s*or\s*girl|පිරිමි.*ගැහැණු|ගැහැණු.*පිරිමි/i.test(t)) r.gender = 'Boys / Girls'
+    else {
+      if (/boy|කොල්ල|පිරිමි|male/i.test(t)) r.gender = 'Boys'
+      if (/girl|කෙල්ල|ගැහැණු|female/i.test(t)) r.gender = r.gender ? 'Boys / Girls' : 'Girls'
+    }
+    if (/\bone\b/i.test(t) && !r.requirement) r.requirement = '1 දෙනෙක්'
   }
-  if (/\bone\b/i.test(t)) r.requirement = '1 දෙනෙක්'
-  const numM = t.match(/(?:boy|boys|girl|girls|කොල්ල|දෙනෙක්)\s*(\d)/i) || t.match(/(\d)\s*(?:boy|boys|කොල්ල|දෙනෙක්)/i)
-  if (numM) r.requirement = numM[1] + ' දෙනෙක්'
 
   if (/full\s*time|පූර්ණ/i.test(t)) r.employmentType = 'full-time'
-  if (/urgent|dan\s*enna|දැන්|immediate|asap|වහාම/i.test(t)) r.immediate = true
+  if (/urgent|dan\s*enna|දැන්|dn\s*yana|immediate|asap|වහාම/i.test(t)) r.immediate = true
 
   r.title = [r.workType, r.locations[0] || r.location, r.payment].filter(Boolean).join(' • ') || 'Job'
 
-  // ---- Clean (short, clear) ----
+  // ========== CLEAN PREVIEW ==========
   const lines: string[] = []
   if (r.immediate) lines.push('⚡ Urgent')
   if (r.date) lines.push('📅 ' + r.date)
@@ -355,7 +590,7 @@ export function extractAll(text: string): Extracted {
   if (r.workType) lines.push('🛠️ ' + r.workType)
   if (r.gender || r.requirement) lines.push('👥 ' + [r.gender, r.requirement].filter(Boolean).join(' · '))
   if (r.payment) lines.push('💰 ' + r.payment + (r.food ? ' + කෑම' : ''))
-  for (const s of r.special) lines.push('✅ ' + s)
+  for (const s of [...new Set(r.special)]) lines.push('✅ ' + s)
   if (r.contact) lines.push('📞 ' + r.contact + (r.contactName ? ' – ' + r.contactName : ''))
   r.clean = lines.join('\n')
 
