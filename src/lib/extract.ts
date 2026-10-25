@@ -12,6 +12,7 @@
 
 const LOCATIONS: { keys: string[]; name: string; district?: string }[] = [
   { keys: ['රාජගිරිය', 'rajagiriya'], name: 'රාජගිරිය', district: 'Colombo' },
+  { keys: ['මාලිගාවත්ත', 'maligawatta', 'maligawatte'], name: 'මාලිගාවත්ත', district: 'Colombo' },
   { keys: ['කොළඹ', 'colombo', 'කොලඹ'], name: 'කොළඹ', district: 'Colombo' },
   { keys: ['viharamahadevi', 'විහාරමහාදේවී', 'vihara mahadevi'], name: 'Viharamahadevi Park', district: 'Colombo' },
   { keys: ['colombo city center', 'city center', 'ccc'], name: 'Colombo City Center', district: 'Colombo' },
@@ -24,7 +25,7 @@ const LOCATIONS: { keys: string[]; name: string; district?: string }[] = [
   { keys: ['කඩුවෙල', 'kaduwela'], name: 'කඩුවෙල', district: 'Colombo' },
   { keys: ['හෝමාගම', 'homagama'], name: 'හෝමාගම', district: 'Colombo' },
   { keys: ['මාලබේ', 'malabe'], name: 'මාලබේ', district: 'Colombo' },
-  { keys: ['කිරුළපන', 'kirulapone', 'kirulapana'], name: 'කිරුළපන', district: 'Colombo' },
+  { keys: ['කිරුළපන', 'kirulapone', 'kirulapana', 'kirulopone', 'kirulapone'], name: 'කිරුළපන', district: 'Colombo' },
   { keys: ['බොරැල්ල', 'borella'], name: 'බොරැල්ල', district: 'Colombo' },
   { keys: ['පෙට්ටා', 'pettah'], name: 'පෙට්ටා', district: 'Colombo' },
   { keys: ['අත්තිඩිය', 'aththidiya'], name: 'අත්තිඩිය', district: 'Colombo' },
@@ -100,7 +101,7 @@ function isYearLike(n: number) {
 }
 
 /** SL mobile: 07X XXX XXXX with optional spaces */
-const PHONE_RE = /(?:0|\+?94)?7\d[\s\-]*\d{3}[\s\-]*\d{3,4}/g
+const PHONE_RE = /(?:0|\+?94)?7[\d\s\-]{8,14}\d/g
 
 /** Remove person-count phrases so they never become salary */
 function stripHeadcount(text: string): string {
@@ -149,7 +150,8 @@ export function extractAll(text: string): Extracted {
     let p = phones[0].replace(/[\s\-]/g, '')
     if (p.startsWith('94')) p = '0' + p.slice(2)
     if (!p.startsWith('0') && p.length === 9) p = '0' + p
-    r.contact = p
+    // valid SL mobile: 07XXXXXXXX (10 digits)
+    if (/^07\d{8}$/.test(p)) r.contact = p
   }
 
   // ========== LOCATIONS ==========
@@ -227,15 +229,49 @@ export function extractAll(text: string): Extracted {
     r.special.push('Transport: ' + pickupNames.join(', ') + ' සිට')
   }
 
-  // Clean location labels: "*Name 1" → Name, dedupe
+  // Clean location labels: "*Name 1" → Name, dedupe synonyms
   r.locations = [...new Set(
     r.locations.map(n => n.replace(/^[*\s]+/, '').replace(/\s+\d+\s*$/, '').trim()).filter(Boolean)
   )]
   if (r.location) {
     r.location = r.location.replace(/^[*\s]+/, '').replace(/\s+\d+\s*$/, '').trim()
   }
-  // Drop free-text duplicate of known city
-  r.locations = r.locations.filter((n, i, arr) => arr.indexOf(n) === i)
+
+  // Synonym map: English / Singlish → canonical Sinhala (or keep one)
+  const SYN: Record<string, string> = {
+    'moratuwa': 'මොරටුව', 'මොරටුව': 'මොරටුව',
+    'colombo': 'කොළඹ', 'කොළඹ': 'කොළඹ', 'කොලඹ': 'කොළඹ',
+    'kelaniya': 'කැලණිය', 'kalaniya': 'කැලණිය', 'කැලණිය': 'කැලණිය',
+    'nugegoda': 'නුගේගොඩ', 'නුගේගොඩ': 'නුගේගොඩ',
+    'rajagiriya': 'රාජගිරිය', 'රාජගිරිය': 'රාජගිරිය',
+    'wellawatte': 'වැල්ලවත්ත', 'wellawatta': 'වැල්ලවත්ත', 'වැල්ලවත්ත': 'වැල්ලවත්ත',
+    'maradana': 'මාරදාන', 'මාරදාන': 'මාරදාන', 'මරදාන': 'මාරදාන',
+  }
+  function canonLoc(n: string): string {
+    const low = n.toLowerCase().trim()
+    // "Moratuwa K-zone" / "Moratuwa K Zone" → මොරටුව K-Zone
+    const kzone = /k\s*-?\s*zone/i.test(n)
+    for (const [k, v] of Object.entries(SYN)) {
+      if (low === k || low.includes(k)) {
+        return kzone ? v + ' K-Zone' : v
+      }
+    }
+    if (kzone && /moratuwa|මොරටුව/i.test(n)) return 'මොරටුව K-Zone'
+    if (/^k\s*-?\s*zone$/i.test(n)) return 'K-Zone'
+    return n
+  }
+  r.locations = [...new Set(r.locations.map(canonLoc))]
+  // If we have "මොරටුව K-Zone", drop bare මොරටුව and bare K-Zone
+  if (r.locations.some(n => /K-Zone/i.test(n) && n !== 'K-Zone')) {
+    r.locations = r.locations.filter(n => n !== 'K-Zone')
+  }
+  for (const combined of r.locations.filter(n => /K-Zone/i.test(n))) {
+    const base = combined.replace(/\s*K-Zone/i, '').trim()
+    r.locations = r.locations.filter(n => n !== base)
+  }
+  if (r.location) r.location = canonLoc(r.location)
+  // Primary = first remaining or combined
+  if (r.locations.length) r.location = r.locations[0]
 
 
   if (!r.location) {
@@ -293,6 +329,10 @@ export function extractAll(text: string): Extracted {
   let timeSrc = t
     .replace(/\b20\d{2}\s*[./\-]\s*\d{1,2}\s*[./\-]\s*\d{1,2}\b/g, ' ')
     .replace(/\b20\d{2}\b/g, ' ')
+  // If morning (ude) is stated, ignore conflicting "7pm/4pm" style pairs later in ad
+  if (/(?:ude|උදේ|morning)/i.test(t)) {
+    timeSrc = timeSrc.replace(/\b\d{1,2}\s*pm\s*[\/\-]\s*\d{1,2}\s*pm\b/gi, ' ')
+  }
   // Normalize "9 00,am ,6 00 pm" / "9.00am,6.00pm" → easier match
   timeSrc = timeSrc
     .replace(/(\d{1,2})\s+00\s*,?\s*(am|pm)/gi, '$1:00 $2')
@@ -333,6 +373,25 @@ export function extractAll(text: string): Extracted {
     r.time = pad(h) + ':' + m
   }
 
+  // ude/උදේ = morning AM | hawasa/හවස = evening PM  (never swap)
+  if (!r.time) {
+    const ude = t.match(/(?:ude|උදේ|uday|morning)\s*(\d{1,2})\s*(?::(\d{2}))?\s*(?:ta|ට|ටට)?/i) ||
+                t.match(/(\d{1,2})\s*(?::(\d{2}))?\s*(?:ta|ට)?\s*(?:ude|උදේ|morning)/i)
+    const haw = t.match(/(?:hawasa|හවස|havas|evening|rathri|රාත්‍රී)\s*(\d{1,2})\s*(?::(\d{2}))?\s*(?:ta|ට)?/i) ||
+                t.match(/(\d{1,2})\s*(?::(\d{2}))?\s*(?:ta|ට)?\s*(?:hawasa|හවස|evening)/i)
+    if (ude) {
+      let h = parseInt(ude[1], 10)
+      if (h === 12) h = 0
+      // morning: keep 1-11 as AM, 12 = 00
+      if (h >= 1 && h <= 11) { /* AM ok */ }
+      else if (h === 12) h = 0
+      r.time = pad(h) + ':' + (ude[2] || '00') + ' පටන් (උදේ)'
+    } else if (haw) {
+      let h = parseInt(haw[1], 10)
+      if (h < 12) h += 12
+      r.time = pad(h) + ':' + (haw[2] || '00') + ' පටන් (හවස)'
+    }
+  }
   if (!r.time) {
     const fromT = timeSrc.match(/(?:from|පටන්|patan|start)?\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*(?:පටන්|patan|onwards|from)?/i) ||
                   timeSrc.match(/(\d{1,2})(?::(\d{2}))?\s*(pm|am)\s*(?:පටන්|patan)/i)
@@ -341,6 +400,8 @@ export function extractAll(text: string): Extracted {
       r.time = pad(h) + ':' + (fromT[2] || '00') + ' පටන්'
     }
   }
+  // If text has ude + also a stray 7pm/4pm, prefer ude (already set) — do not override
+
 
 
   // Reject impossible times (e.g. 26:10 from mangled dates)
@@ -397,12 +458,29 @@ export function extractAll(text: string): Extracted {
     }
   }
 
-  // 1) Explicit total: 2800/= or 2800/-
-  {
-    const m = payText.match(/\b([1-9][0-9]{3,5})\s*\/\s*=?/)
+  // 0b) Sinhala rate cards: පැය 12  2,000/= | දිනකට 4,000/= | සතියකට | මාසකට
+  // Prefer දිනකට (day) as main board rate, else පැය rate; ignore monthly as sole "daily" pay
+  if (!paymentFound) {
+    const dayRate = t.match(/දිනකට\s*([0-9]{1,3}(?:,[0-9]{3})*|[0-9]{3,6})\s*\/\s*=?/i)
+    const hourRate = t.match(/පැය\s*\d{1,2}\s*([0-9]{1,3}(?:,[0-9]{3})*|[0-9]{3,6})\s*\/\s*=?/i)
+    const pick = dayRate || hourRate
+    if (pick) {
+      const num = parseInt(pick[1].replace(/,/g, ''), 10)
+      if (num >= 500 && num <= 50000 && !isYearLike(num)) {
+        r.paymentNum = num
+        r.payment = 'Rs. ' + num.toLocaleString('en-LK')
+        if (dayRate) r.payment += ' (දිනකට)'
+        else if (hourRate) r.payment += ' (පැය)'
+        paymentFound = true
+      }
+    }
+  }
+  // 0c) Any amount with comma: 2,000/=
+  if (!paymentFound) {
+    const m = payText.match(/\b([1-9][0-9]{0,2},[0-9]{3})\s*\/\s*=?/)
     if (m) {
-      const num = parseInt(m[1], 10)
-      if (num >= 500 && num <= 100000 && !isYearLike(num)) {
+      const num = parseInt(m[1].replace(/,/g, ''), 10)
+      if (num >= 500 && num <= 50000 && !isYearLike(num)) {
         r.paymentNum = num
         r.payment = 'Rs. ' + num.toLocaleString('en-LK')
         paymentFound = true
@@ -410,16 +488,40 @@ export function extractAll(text: string): Extracted {
     }
   }
 
-  // 2) Compound: Payment 2000+500(food)+300 → sum
+  // 1) Compound FIRST: Payment 2000+500(food)+300(transport) → breakdown
   if (!paymentFound) {
-    const m = payText.match(
-      /(?:payment|peymnt|peya|pay|ගෙවීම|salary)\s*[-:=]?\s*([0-9]{3,6})\s*\+\s*([0-9]{2,5})(?:\s*\([^)]*\))?(?:\s*\+\s*([0-9]{2,5}))?/i
+    const m = t.match(
+      /(?:payment|peymnt|peya|pay|ගෙවීම|salary)\s*[-:=]?\s*([0-9]{3,6})\s*\+\s*([0-9]{2,5})(\s*\([^)]*\))?(?:\s*\+\s*([0-9]{2,5})(\s*\([^)]*\))?)?/i
     )
     if (m) {
-      const sum = parseInt(m[1], 10) + parseInt(m[2], 10) + (m[3] ? parseInt(m[3], 10) : 0)
+      const a = parseInt(m[1], 10)
+      const b = parseInt(m[2], 10)
+      const bNote = (m[3] || '').replace(/[()]/g, '').trim()
+      const c = m[4] ? parseInt(m[4], 10) : 0
+      const cNote = (m[5] || '').replace(/[()]/g, '').trim()
+      const sum = a + b + c
       if (sum >= 500 && sum <= 100000) {
         r.paymentNum = sum
-        r.payment = 'Rs. ' + sum.toLocaleString('en-LK')
+        const parts = [a.toLocaleString('en-LK')]
+        parts.push(b.toLocaleString('en-LK') + (bNote ? '(' + bNote + ')' : ''))
+        if (c) parts.push(c.toLocaleString('en-LK') + (cNote ? '(' + cNote + ')' : ''))
+        const tot = t.match(/\b([1-9][0-9]{3,5})\s*\/\s*=?/)
+        const totNum = tot ? parseInt(tot[1], 10) : sum
+        r.payment = 'Rs. ' + parts.join('+') + ' = ' + totNum.toLocaleString('en-LK')
+        if (/food|කෑම/i.test(bNote + ' ' + cNote)) r.food = true
+        paymentFound = true
+      }
+    }
+  }
+
+  // 2) Explicit total only if no compound: 2800/=
+  if (!paymentFound) {
+    const m = payText.match(/\b([1-9][0-9]{3,5})\s*\/\s*=?/)
+    if (m) {
+      const num = parseInt(m[1], 10)
+      if (num >= 500 && num <= 100000 && !isYearLike(num)) {
+        r.paymentNum = num
+        r.payment = 'Rs. ' + num.toLocaleString('en-LK')
         paymentFound = true
       }
     }
@@ -491,18 +593,21 @@ export function extractAll(text: string): Extracted {
   if (/food\s*denne\s*naa|food\s*naa|no\s*food|කෑම\s*නැ|without\s*food|food\s*netha|කෑම\s*අැ/i.test(t)) {
     r.food = false
     r.special.push('කෑම නැහැ')
-  } else if (/food|කෑම|lunch|කැම|\+food/i.test(t)) {
+  } else if (/food|කෑම|lunch|කැම|\+food|ආහාර\s*සමග|ආහාර\s*එක්ක/i.test(t)) {
     r.food = true
   }
 
-  if (/trnsport|transport|ගමන්|traveling/i.test(t) && r.payment && !/transport/i.test(r.payment)) {
+  if (/trnsport|transport|ගමන්|traveling/i.test(t) && r.payment && !/transport|trnsport/i.test(r.payment)) {
     r.payment += ' + transport'
   }
 
   // ========== SPECIAL ==========
   {
-    const withoutForm = t.replace(/full\s*name[\s\S]*$/i, '').replace(/\bid\s*(no|number)\b/gi, ' ')
-    if (/(?:id\s*card|nic|ජාතික|හැඳුනුම්\s*පත|id\s*ගෙන|bring\s*id)/i.test(withoutForm)) {
+    const withoutForm = t
+      .replace(/(?:නම|දුරකතන|හැඳුනුම්පත්|නගරය|full\s*name|id\s*no|contact)[\s\S]*$/i, '')
+      .replace(/\bid\s*(no|number)\b/gi, ' ')
+      .replace(/ජාතිකත්වය/gi, ' ')
+    if (/(?:id\s*card|nic|හැඳුනුම්\s*පත\s*ගෙන|id\s*ගෙන|bring\s*id)/i.test(withoutForm)) {
       r.special.push('ID ගෙනෙන්න')
     } else if (/\bid\b/i.test(withoutForm) && /(?:ගෙනෙන්න|ගෙන|gena|ඕනේ|onii|required)/i.test(withoutForm)) {
       r.special.push('ID ගෙනෙන්න')
@@ -531,6 +636,7 @@ export function extractAll(text: string): Extracted {
   else if (/promotion|promo|ප්‍රොමෝ|ප්‍රෝමෝ|app\s*promotion/i.test(t)) r.workType = 'Promotion'
   else if (/sales|විකුණුම්|stores?|super|grocery/i.test(t)) r.workType = 'Sales / Store'
   else if (/delivery|ඩෙලිවරි/i.test(t)) r.workType = 'Delivery'
+  else if (/ආරක්ෂක|security|guard|සුරක්ෂිත/i.test(t)) r.workType = 'Security'
   else if (/cleaning|පිරිසිදු/i.test(t)) r.workType = 'Cleaning'
   else if (/driver|ධාවක/i.test(t)) r.workType = 'Driver'
   else if (/cashier|කැෂියර්/i.test(t)) r.workType = 'Cashier'
